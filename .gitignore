@@ -14,6 +14,7 @@ yarn-error.log*
 # Build output
 dist/
 build/
+tradbazar-firebase-adminsdk-fbsvc-5a17141fc1.json
 
 # IDE / Editor settings
 .vscode/

@@ -41,7 +41,7 @@ const client = new MongoClient(process.env.MONGODB_URI, {
 async function run() {
     try {
 
-        await client.connect();
+        // await client.connect();
 
 
         // create db and collection
@@ -104,7 +104,7 @@ async function run() {
                     email,
 
                     photo,
-                    district } = req.body;
+                } = req.body;
 
 
 
@@ -124,7 +124,7 @@ async function run() {
                     email,
 
                     photo,
-                    district,
+
                     role: 'user',
                     created_at: new Date().toISOString(),
                     last_logged_in: new Date().toISOString(),
@@ -144,6 +144,60 @@ async function run() {
                 });
             }
         });
+
+
+        // 📍 Get All Users  with Optional Search (admin)
+        app.get("/users", async (req, res) => {
+            const { searchText } = req.query;
+            let query = { role: { $ne: "admin" } };
+
+            if (searchText) {
+                query = {
+                    $or: [
+                        { name: { $regex: searchText, $options: "i" } },
+                        { email: { $regex: searchText, $options: "i" } },
+                    ],
+                };
+            }
+
+            const users = await usersCollection.find(query).toArray();
+            res.send(users);
+        });
+
+        // delete users by admin
+        app.delete("/admin/users/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                // Validate MongoDB ObjectId
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({ success: false, message: "Invalid user ID" });
+                }
+
+                // Attempt to delete the user
+                const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
+
+                if (result.deletedCount === 0) {
+                    return res.status(404).send({ success: false, message: "User not found" });
+                }
+
+                // ✅ Success
+                res.status(200).send({
+                    success: true,
+                    message: "User deleted successfully",
+                    deletedId: id,
+                });
+            } catch (error) {
+                console.error("Error deleting user:", error);
+                res.status(500).send({
+                    success: false,
+                    message: "Internal Server Error while deleting user",
+                    error: error.message,
+                });
+            }
+        })
+
+
 
         // get User Role (only verify token)
         app.get("/user/role", verifyFbToken, async (req, res) => {
@@ -371,7 +425,7 @@ async function run() {
 
 
         // delete myProduct for seller
-        app.delete('/myProducts/:id', verifyFbToken, verifySeller, async (req, res) => {
+        app.delete('/myProducts/:id', verifyFbToken, async (req, res) => {
             try {
 
                 const id = req.params.id;
@@ -386,7 +440,7 @@ async function run() {
         });
 
         // - update a Myproduct for seller by ID 
-        app.patch("/products/:id", verifyFbToken, verifySeller, async (req, res) => {
+        app.patch("/products/:id", verifyFbToken, async (req, res) => {
             try {
                 const id = req.params.id;
                 const updatedData = req.body;
@@ -439,14 +493,115 @@ async function run() {
         });
 
 
+        // users request for (become a seller)
+        app.post('/sellers/request', async (req, res) => {
+            try {
+
+                const { email, phone, productType, source, district } = req.body;
+
+                const user = await usersCollection.findOne({ email });
+                if (!user) return res.status(404).send({ message: "User not found" });
+
+                if (user.sellerRequest && user.sellerRequest.status === "pending") {
+                    return res.status(400).send({ message: "Request already submitted", success: false });
+                }
+
+                const result = await usersCollection.updateOne({ email },
+                    {
+                        $set: {
+                            sellerRequest: {
+                                phone,
+                                productType,
+                                source,
+                                district,
+                                status: "pending",
+                                date: new Date().toISOString().split("T")[0],
+                            }
+                        }
+                    }
+                )
+                res.status(200).send({
+                    success: true,
+                    message: "Seller request submitted successfully",
+                    result,
+                });
+
+
+            } catch (error) {
+                console.error("Error in /seller-request:", error);
+                res.status(500).send({
+                    success: false,
+                    message: "Internal Server Error while submitting seller request",
+                    error: error.message,
+                });
+            }
+
+
+        });
+
+
+        // get all seller request (for admin)
+        app.get('/admin/seller-requests', async (req, res) => {
+            const pendingRequests = await usersCollection
+                .find({ "sellerRequest.status": "Pending" })
+                .toArray();
+
+            res.status(200).send(pendingRequests);
+
+        });
+
+
+        // approved seller request and update user role as seller
+        app.patch(`/admin/seller/update-request/:email`, async (req, res) => {
+            try {
+
+                const { email } = req.params;
+                const { action } = req.body;
+
+                const user = await usersCollection.findOne({ email });
+                if (!user || !user.sellerRequest) {
+                    return res.status(404).send({ message: "Seller request not found" });
+                }
+
+                const updateData = {
+                    "sellerRequest.status": action,
+                    "sellerRequest.reviewedAt": new Date().toISOString(),
+                };
+
+                // ✅ If approved, make user a seller
+                if (action === "approved") {
+                    updateData.role = "seller";
+                }
+                const result = await usersCollection.updateOne(
+                    { email },
+                    { $set: updateData }
+                );
+
+                res.status(200).send({
+                    success: true,
+                    message: `Seller request ${action.toLowerCase()} successfully`,
+                });
+
+            } catch (error) {
+                console.error("Error in /admin/seller-request:", error);
+                res.status(500).send({
+                    success: false,
+                    message: "Internal Server Error while updating seller request",
+                    error: error.message,
+                });
+            }
+        })
 
 
 
 
 
 
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
+
+
+
+        // await client.db("admin").command({ ping: 1 });
+        // console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
         // await client.close();
