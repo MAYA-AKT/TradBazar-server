@@ -10,9 +10,15 @@ const serviceAccount = require("./tradbazar-firebase-adminsdk-fbsvc-5a17141fc1.j
 // stripe
 const stripe = require('stripe')(process.env.STRIPE_SK_KEY)
 
+
 const app = express();
 const port = process.env.PORT || 3000;
 
+
+// vdo conference
+const { RtcTokenBuilder, RtcRole } = require("agora-access-token");
+
+// vdo conference
 
 // Middleware
 app.use(cors());
@@ -76,6 +82,40 @@ async function run() {
                 return res.status(403).send({ message: 'Forbidden access' })
             }
         }
+
+
+        // Generate token for Agora video call
+        app.get("/getToken", (req, res) => {
+            try {
+                const { sellerEmail, uid } = req.query;
+
+                if (!sellerEmail || !uid)
+                    return res.status(400).json({ msg: "sellerEmail and uid required" });
+
+                if (!process.env.AGORA_APP_ID || !process.env.AGORA_APP_CERTIFICATE)
+                    return res.status(500).json({ msg: "Agora credentials not set" });
+
+                const channelName = `seller_${sellerEmail}`;
+                const role = RtcRole.PUBLISHER;
+                const expirationTimeInSeconds = 3600;
+                const currentTimestamp = Math.floor(Date.now() / 1000);
+                const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
+
+                const token = RtcTokenBuilder.buildTokenWithUid(
+                    process.env.AGORA_APP_ID,
+                    process.env.AGORA_APP_CERTIFICATE,
+                    channelName,
+                    parseInt(uid),
+                    role,
+                    privilegeExpiredTs
+                );
+
+                res.json({ token, channelName });
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ msg: "Server error", error: err.message });
+            }
+        });
 
 
 
@@ -343,17 +383,17 @@ async function run() {
 
         app.get("/user-categories", async (req, res) => {
             try {
-               const categories = await categoriesCollection
-               .find()
-               .limit(16)
-               .toArray();
-               res.status(200).send(categories);
-            } 
-                catch (error) {
-                    console.error("Failed to fetch categories:", error);
-                    res.status(500).send({ message: "Failed to fetch categories" });
-                }
-           
+                const categories = await categoriesCollection
+                    .find()
+                    .limit(16)
+                    .toArray();
+                res.status(200).send(categories);
+            }
+            catch (error) {
+                console.error("Failed to fetch categories:", error);
+                res.status(500).send({ message: "Failed to fetch categories" });
+            }
+
         })
 
         // edit or update category for admin
@@ -560,7 +600,7 @@ async function run() {
         });
 
         // get products by seller email
-      
+
         app.get("/products/seller", async (req, res) => {
             try {
                 const { email, status, search, page = 1, limit = 8 } = req.query;
@@ -1312,7 +1352,7 @@ async function run() {
 
 
         // GET /seller/orders?sellerEmail=abc@example.com&page=1&limit=5
-       
+
 
         app.get("/seller/orders", async (req, res) => {
             try {
@@ -1794,7 +1834,7 @@ async function run() {
             }
         });
 
-       
+
 
 
 
@@ -2002,7 +2042,56 @@ async function run() {
         });
 
 
+        // top selling products
+        app.get("/top-selling", async (req, res) => {
+            try {
+                const result = await ordersCollection.aggregate([
+                    { $match: { paymentStatus: "paid" } },
 
+                    {
+                        $addFields: {
+                            productObjectId: { $toObjectId: "$productId" }
+                        }
+                    },
+
+                    {
+                        $group: {
+                            _id: "$productObjectId",
+                            totalSold: { $sum: "$quantity" }
+                        }
+                    },
+
+                    { $sort: { totalSold: -1 } },
+                    { $limit: 6 },
+
+                    {
+                        $lookup: {
+                            from: "products",
+                            localField: "_id",
+                            foreignField: "_id",
+                            as: "product"
+                        }
+                    },
+
+                    { $unwind: "$product" },
+
+                    { $match: { "product.isAvailable": true } },
+
+                    {
+                        $project: {
+                            _id: 0,
+                            totalSold: 1,
+                            product: 1
+                        }
+                    }
+                ]).toArray();
+
+                res.json(result);
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: "Failed to fetch top selling products" });
+            }
+        });
 
 
 

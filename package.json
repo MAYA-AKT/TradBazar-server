@@ -11,14 +11,16 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "agora-access-token": "^2.0.4",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
-    "express": "^5.1.0",
+    "express": "^5.2.1",
     "firebase-admin": "^13.5.0",
     "mongodb": "^6.20.0",
     "nodemon": "^3.1.10",
+    "socket.io": "^4.8.3",
     "stripe": "^19.3.1"
   }
 }
