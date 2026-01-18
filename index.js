@@ -207,11 +207,11 @@ async function run() {
                 const pageNum = parseInt(page);
                 const pageSize = parseInt(limit);
 
-                let query = { role: { $ne: "admin" } };
+                let query = {};
 
                 if (searchText) {
                     query = {
-                        role: { $ne: "admin" },
+                      
                         $or: [
                             { name: { $regex: searchText, $options: "i" } },
                             { email: { $regex: searchText, $options: "i" } },
@@ -309,7 +309,51 @@ async function run() {
                     error: error.message,
                 });
             }
-        })
+        });
+
+        // make admin to user
+        app.patch("/users/make-admin/:id", async (req, res) => {
+            try {
+                const { id } = req.params;
+
+                const user = await usersCollection.findOne({ _id: new ObjectId(id) });
+
+                if (!user) {
+                    return res.status(404).send({
+                        success: false,
+                        message: "User not found",
+                    });
+                }
+
+              
+                if (user.role === "admin") {
+                    return res.send({
+                        success: true,
+                        message: "User already admin",
+                    });
+                }
+
+                await usersCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { role: "admin" } }
+                );
+
+                res.send({
+                    success: true,
+                    message: "User promoted to admin",
+                });
+
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({
+                    success: false,
+                    message: "Server error",
+                });
+            }
+        });
+
+
+
 
 
 
