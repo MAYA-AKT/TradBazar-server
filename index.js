@@ -211,7 +211,7 @@ async function run() {
 
                 if (searchText) {
                     query = {
-                      
+
                         $or: [
                             { name: { $regex: searchText, $options: "i" } },
                             { email: { $regex: searchText, $options: "i" } },
@@ -325,7 +325,7 @@ async function run() {
                     });
                 }
 
-              
+
                 if (user.role === "admin") {
                     return res.send({
                         success: true,
@@ -2143,82 +2143,163 @@ async function run() {
         });
 
         // seller dashboar overview
-        app.get("/seller/overview", async (req, res) => {
+        app.get("/seller/stats", async (req, res) => {
             try {
-                const sellerEmail = req.query.email;
 
-                if (!sellerEmail) {
-                    return res.status(400).send({ message: "Seller email is required" });
-                }
+                const sellerEmail = req.query.sellerEmail;
 
+                // Total products
+                const totalProducts = await productsCollection.countDocuments({ 'seller.email': sellerEmail });
 
-                const products = await productsCollection
-                    .find({ "seller.email": sellerEmail })
-                    .toArray();
-
-                const productsCount = products.length;
-
-                const lowStockProducts = products.filter((p) => p.quantity <= 5); // threshold = 5
-
-
-                const orders = await ordersCollection
-                    .find({ "sellerInfo.email": sellerEmail })
-                    .toArray();
-
-                const ordersCount = orders.length;
-
-
-                const totalEarnings = orders
-                    .filter(
-                        (o) =>
-                            o.orderStatus === "delivered" &&
-                            ((o.paymentMethod === "Card" && o.paymentStatus === "paid") ||
-                                o.paymentMethod === "COD")
-                    )
-                    .reduce((sum, o) => sum + (o.grandTotal || 0), 0);
-
-
-                const productIds = products.map((p) => p._id.toString());
-                const reviews = await reviewsCollection
-                    .find({ productId: { $in: productIds } })
-                    .toArray();
-
-                const reviewsCount = reviews.length;
-
-
-                const recentOrders = orders
-                    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-                    .slice(0, 5);
-
-
-                let topProduct = null;
-                if (orders.length > 0) {
-                    const productSales = {};
-                    orders.forEach((o) => {
-                        const pid = o.productId;
-                        if (!productSales[pid]) productSales[pid] = 0;
-                        productSales[pid] += o.quantity;
-                    });
-                    const topProductId = Object.keys(productSales).reduce((a, b) =>
-                        productSales[a] > productSales[b] ? a : b
-                    );
-                    topProduct = products.find((p) => p._id.toString() === topProductId) || null;
-                }
-
-                res.status(200).send({
-                    productsCount,
-                    lowStockProducts,
-                    ordersCount,
-                    totalEarnings,
-                    reviewsCount,
-                    recentOrders,
-                    topProduct,
+                // Verified products
+                const verifiedProducts = await productsCollection.countDocuments({
+                    'seller.email': sellerEmail,
+                    verificationStatus: 'verified',
                 });
+
+                // Total orders
+                const totalOrders = await ordersCollection.countDocuments({ 'sellerInfo.email': sellerEmail });
+
+                // Pending orders
+                const pendingOrders = await ordersCollection.countDocuments({
+                    'sellerInfo.email': sellerEmail,
+                    orderStatus: { $in: ['pending', 'processing'] },
+                });
+
+                // Total earnings / revenue (paid orders)
+                const revenueAgg = await ordersCollection.aggregate([
+                    { $match: { 'sellerInfo.email': sellerEmail, paymentStatus: 'paid' } },
+                    { $group: { _id: null, totalRevenue: { $sum: '$grandTotal' } } },
+                ]).toArray();
+                const totalRevenue = revenueAgg[0]?.totalRevenue || 0;
+
+                // Total reviews for this seller's products
+                // First, get all product IDs for this seller
+                const sellerProducts = await productsCollection.find({ 'seller.email': sellerEmail }).project({ _id: 1 }).toArray();
+                const productIds = sellerProducts.map(p => p._id.toString());
+
+                const totalReviews = await reviewsCollection.countDocuments({
+                    productId: { $in: productIds },
+                });
+
+                res.json({
+                    totalProducts,
+                    verifiedProducts,
+                    totalOrders,
+                    pendingOrders,
+                    totalRevenue,
+                    totalReviews,
+                });
+
             } catch (error) {
-                console.error("Error fetching seller overview:", error);
-                res.status(500).send({ message: "Internal server error" });
+                console.error('Error fetching seller overview:', error);
+                res.status(500).json({ message: 'Server Error' });
             }
         });
+
+        // admin dashboar overview
+        app.get("/admin/stats", async (req, res) => {
+            try {
+              
+                const totalUsers = await usersCollection.countDocuments({ role: "user" });
+                const totalSellers = await usersCollection.countDocuments({ role: "seller" });
+                const totalProducts = await productsCollection.countDocuments();
+                const verifiedProducts = await productsCollection.countDocuments({ verificationStatus: "verified" });
+                const totalOrders = await ordersCollection.countDocuments();
+
+                
+                const recentOrders = await ordersCollection.find({})
+                    .sort({ createdAt: -1 })
+                    .limit(5)
+                    .project({
+                        _id: 1,
+                        productId: 1,
+                        quantity: 1,
+                        totalPrice: 1,
+                        grandTotal: 1,
+                        'sellerInfo.email': 1,
+                        orderStatus: 1,
+                        paymentStatus: 1,
+                        createdAt: 1
+                    })
+                    .toArray();
+
+               
+                const pendingProducts = await productsCollection.find({ verificationStatus: "pending" })
+                    .sort({ createdAt: -1 })
+                    .limit(5)
+                    .project({
+                        _id: 1,
+                        name: 1,
+                        category: 1,
+                        'seller.email': 1,
+                        createdAt: 1
+                    })
+                    .toArray();
+
+             
+                const totalCoupons = await couponsCollection.countDocuments();
+
+             
+                const revenueAgg = await ordersCollection.aggregate([
+                    { $match: { paymentStatus: "paid" } },
+                    { $group: { _id: null, totalRevenue: { $sum: "$grandTotal" } } }
+                ]).toArray();
+                const totalRevenue = revenueAgg[0]?.totalRevenue || 0;
+
+                
+                const sevenDaysAgo = new Date();
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6); 
+                const revenueOverTime = await ordersCollection.aggregate([
+                    {
+                        $addFields: { createdAtDate: { $toDate: "$createdAt" } }
+                    },
+                    { $match: { paymentStatus: "paid", createdAtDate: { $gte: sevenDaysAgo } } },
+                    {
+                        $group: {
+                            _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAtDate" } },
+                            totalRevenue: { $sum: "$grandTotal" },
+                        }
+                    },
+                    { $sort: { "_id": 1 } }
+                ]).toArray();
+
+                const revenueData = revenueOverTime.map(item => ({ date: item._id, revenue: item.totalRevenue }));
+
+               
+                const ordersStatusAgg = await ordersCollection.aggregate([
+                    { $group: { _id: "$orderStatus", count: { $sum: 1 } } }
+                ]).toArray();
+                const ordersByStatus = ordersStatusAgg.map(item => ({ status: item._id, value: item.count }));
+
+               
+                const productsCategoryAgg = await productsCollection.aggregate([
+                    { $group: { _id: "$category", count: { $sum: 1 } } }
+                ]).toArray();
+                const productsByCategory = productsCategoryAgg.map(item => ({ category: item._id, count: item.count }));
+
+               
+                res.json({
+                    totalUsers,
+                    totalSellers,
+                    totalProducts,
+                    verifiedProducts,
+                    totalOrders,
+                    recentOrders,
+                    pendingProducts,
+                    totalRevenue,
+                    totalCoupons,
+                    revenueData,         
+                    ordersByStatus,       
+                    productsByCategory    
+                });
+
+            } catch (error) {
+                console.error("Error fetching stats:", error);
+                res.status(500).json({ message: "Server Error" });
+            }
+        });
+
 
 
         // top selling products
