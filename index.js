@@ -489,6 +489,32 @@ async function run() {
 
                 const result = await productsCollection.insertOne(newProduct);
 
+
+                // 1️⃣ Notify Seller
+                const sellerNotification = {
+                    userEmail: seller.email,
+                    title: "Product Submitted",
+                    message: `Your product "${name}" has been submitted successfully and is pending admin verification.`,
+                    link: `/seller/products`,
+                    isRead: false,
+                    createdAt: new Date().toISOString(),
+                    type: "product-verification",
+                };
+                await notificationsCollection.insertOne(sellerNotification);
+
+                // 2️⃣ Notify Admin
+                const adminEmail = "admin@gmail.com";
+                const adminNotification = {
+                    userEmail: adminEmail,
+                    title: "New Product Submitted",
+                    message: `Seller ${seller.name || seller.email} submitted a new product "${name}" for verification.`,
+                    link: `/admin/products`,
+                    isRead: false,
+                    createdAt: new Date().toISOString(),
+                    type: "product-verification",
+                };
+                await notificationsCollection.insertOne(adminNotification);
+
                 res.status(201).json({
                     message: "Product submitted for verification!",
                     insertedId: result.insertedId,
@@ -704,6 +730,31 @@ async function run() {
                 }
 
                 const result = await productsCollection.updateOne(filter, updateDoc);
+
+                // send seller notification
+                if (result.modifiedCount > 0 && product.seller?.email) {
+                    const sellerNotification = {
+                        userEmail: product.seller.email, // seller's email
+                        title:
+                            verificationStatus === "verified"
+                                ? "Product Verified ✅"
+                                : verificationStatus === "rejected"
+                                    ? "Product Rejected ❌"
+                                    : "Product Pending ⏳",
+                        message:
+                            verificationStatus === "verified"
+                                ? `Your product "${product.name}" has been verified and is now live on the platform.`
+                                : verificationStatus === "rejected"
+                                    ? `Your product "${product.name}" has been rejected. Please review and update the product information.`
+                                    : `Your product "${product.name}" status is now pending verification.`,
+                        link: "/seller/products", // seller dashboard products page
+                        isRead: false,
+                        createdAt: new Date().toISOString(),
+                    };
+
+                    await notificationsCollection.insertOne(sellerNotification);
+                }
+
                 if (result.modifiedCount > 0) {
                     res.status(200).json({ success: true, message: `Product ${verificationStatus} successfully` });
                 } else {
@@ -744,6 +795,34 @@ async function run() {
                         }
                     }
                 )
+
+                // send notificaiton to seller
+
+                const userNotification = {
+                    userEmail: email,
+                    title: "Seller Request Submitted",
+                    message: `Hello ${user.name || "User"}, your request to become a seller has been submitted successfully. Please wait for approval.`,
+                    link: "/profile/seller-request",
+                    isRead: false,
+                    createdAt: new Date().toISOString(),
+                };
+                await notificationsCollection.insertOne(userNotification);
+
+                //send admin notification
+                const adminEmail = "admin@gmail.com";
+
+                const adminNotification = {
+                    userEmail: adminEmail,
+                    title: "New Seller Request",
+                    message: `User ${user.name || email} has submitted a request to become a seller. Please review and approve.`,
+                    link: "/admin/seller-requests",
+                    isRead: false,
+                    createdAt: new Date().toISOString(),
+                    type: "seller-request",
+                };
+
+                await notificationsCollection.insertOne(adminNotification);
+
                 res.status(200).send({
                     success: true,
                     message: "Seller request submitted successfully",
@@ -916,6 +995,22 @@ async function run() {
                 };
 
                 const result = await reviewsCollection.insertOne(newReview);
+
+                // 🔔 Notify Seller about new review
+                if (sellerEmail) {
+                    const sellerNotification = {
+                        userEmail: sellerEmail,
+                        title: "New Product Review",
+                        message: `${user.name} left a ${rating}⭐ review on your product.`,
+                        link: `/seller/reviews?productId=${productId}`,
+                        isRead: false,
+                        createdAt: new Date().toISOString(),
+                        type: "review",
+                    };
+
+                    await notificationsCollection.insertOne(sellerNotification);
+                }
+
                 res.send(result);
 
             } catch (error) {
@@ -992,6 +1087,21 @@ async function run() {
                         createdAt: new Date().toISOString(),
                     };
                     await notificationsCollection.insertOne(notification);
+                    //    selelr notification
+
+
+                    if (sellerInfo?.email) {
+                        const sellerNotification = {
+                            userEmail: sellerInfo.email,
+                            title: "New Order Received",
+                            message: `Hello ${sellerInfo.name || "Seller"}, you have received a new order for your product "${o.productName || "Product"}".`,
+                            link: `/seller/orders`, // seller dashboard order page
+                            isRead: false,
+                            createdAt: new Date().toISOString(),
+                        };
+                        await notificationsCollection.insertOne(sellerNotification);
+                    }
+
 
 
                     insertedOrders.push(result.insertedId);
@@ -1331,8 +1441,8 @@ async function run() {
                     return res.status(404).send({ success: false, message: "Order not found or status unchanged" });
                 }
 
-                // send notification/email to user here
-                const notification = {
+                // 2️⃣ Notify buyer
+                const buyerNotification = {
                     userEmail: order.userEmail,
                     title: "Order Status Updated",
                     message: `Your order status is now "${status}". Track your order for live updates.`,
@@ -1341,7 +1451,21 @@ async function run() {
                     createdAt: new Date().toISOString(),
                     type: "order-tracking",
                 };
-                await notificationsCollection.insertOne(notification);
+                await notificationsCollection.insertOne(buyerNotification);
+
+                // 3️⃣ Notify seller
+                if (order.sellerInfo?.email) {
+                    const sellerNotification = {
+                        userEmail: order.sellerInfo.email,
+                        title: "Order Status Updated",
+                        message: `The order for your product(s) has been updated to "${status}". Check your seller dashboard for details.`,
+                        link: `/seller/orders`, // seller dashboard orders page
+                        isRead: false,
+                        createdAt: new Date().toISOString(),
+                        type: "order-tracking",
+                    };
+                    await notificationsCollection.insertOne(sellerNotification);
+                }
 
                 res.send({ success: true, message: "Order status updated successfully" });
             } catch (err) {
@@ -1588,7 +1712,18 @@ async function run() {
                     type: "order-tracking",
                 };
                 await notificationsCollection.insertOne(notification);
-
+                // --- Notification for Admin ---
+                const adminEmail = "admin@gmail.com";
+                const adminNotification = {
+                    userEmail: adminEmail,
+                    title: "Order Shipped",
+                    message: `Seller ${order.sellerInfo?.name || order.sellerInfo?.email} has marked order ${orderId} as shipped.`,
+                    link: `/admin/orders`,
+                    isRead: false,
+                    createdAt: new Date().toISOString(),
+                    type: "order-tracking",
+                };
+                await notificationsCollection.insertOne(adminNotification);
                 res.send({
                     success: true,
                     message: "Order shipped successfully",
