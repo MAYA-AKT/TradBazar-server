@@ -968,7 +968,7 @@ async function run() {
                 if (!name) {
                     return res.status(400).send({ message: "Category name is required" });
                 }
-               
+
 
 
                 const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -2018,32 +2018,21 @@ async function run() {
 
 
 
-
+        // seller recent order 
         app.get("/seller/orders-summary", async (req, res) => {
             try {
-                const { sellerEmail, page = 1, limit = 6, status } = req.query;
+                const { sellerEmail } = req.query;
 
                 if (!sellerEmail) {
                     return res.status(400).send({ message: "Seller email required" });
                 }
 
-                const pageNum = parseInt(page);
-                const pageSize = parseInt(limit);
-
-                // ✅ SAME FILTER FOR BOTH COUNT & DATA
+               
                 const matchStage = {
                     "sellerInfo.email": sellerEmail,
                 };
 
-                if (status && status !== "All") {
-                    matchStage.paymentStatus = status.toLowerCase();
-                }
-
-                // ✅ TOTAL COUNT (THIS WAS MISSING)
-                const totalOrders = await ordersCollection.countDocuments(matchStage);
-                const totalPages = Math.ceil(totalOrders / pageSize);
-
-                // ✅ PAGINATED DATA
+              
                 const orders = await ordersCollection.aggregate([
                     { $match: matchStage },
 
@@ -2080,16 +2069,13 @@ async function run() {
                         }
                     },
 
-                    { $sort: { createdAt: -1 } },
-                    { $skip: (pageNum - 1) * pageSize },
-                    { $limit: pageSize }
+                    { $sort: { createdAt: -1 } }, 
+                    { $limit: 5 } 
                 ]).toArray();
 
                 res.send({
                     success: true,
                     orders,
-                    totalOrders,   // ✅ NEW
-                    totalPages     // ✅ NEW
                 });
 
             } catch (err) {
