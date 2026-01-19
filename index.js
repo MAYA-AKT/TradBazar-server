@@ -16,8 +16,8 @@ const port = process.env.PORT || 3000;
 
 
 // vdo conference
-const { RtcTokenBuilder, RtcRole } = require("agora-access-token");
 
+const { RtcTokenBuilder, RtcRole } = require("agora-access-token");
 // vdo conference
 
 // Middleware
@@ -968,11 +968,13 @@ async function run() {
                 if (!name) {
                     return res.status(400).send({ message: "Category name is required" });
                 }
+               
+
 
                 const skip = (parseInt(page) - 1) * parseInt(limit);
 
                 const query = {
-                    category: name,
+                    category: { $regex: `^${name.trim()}$`, $options: "i" }, // exact match, ignore case
                     verificationStatus: "verified",
                 };
 
@@ -2142,7 +2144,7 @@ async function run() {
             }
         });
 
-       
+
         app.get("/seller/stats", async (req, res) => {
             try {
                 const sellerEmail = req.query.sellerEmail;
@@ -2151,29 +2153,29 @@ async function run() {
                     return res.status(400).json({ message: "Seller email is required" });
                 }
 
-               
+
                 const totalProducts = await productsCollection.countDocuments({
                     "seller.email": sellerEmail
                 });
 
-                
+
                 const verifiedProducts = await productsCollection.countDocuments({
                     "seller.email": sellerEmail,
                     verificationStatus: "verified"
                 });
 
-               
+
                 const totalOrders = await ordersCollection.countDocuments({
                     "sellerInfo.email": sellerEmail
                 });
 
-              
+
                 const pendingOrders = await ordersCollection.countDocuments({
                     "sellerInfo.email": sellerEmail,
                     orderStatus: { $in: ["pending", "processing"] }
                 });
 
-                
+
                 const revenueAgg = await ordersCollection.aggregate([
                     {
                         $match: {
@@ -2191,7 +2193,7 @@ async function run() {
 
                 const totalRevenue = revenueAgg[0]?.totalRevenue || 0;
 
-               
+
                 const sellerProducts = await productsCollection
                     .find({ "seller.email": sellerEmail })
                     .project({ _id: 1 })
@@ -2203,7 +2205,7 @@ async function run() {
                     productId: { $in: productIds }
                 });
 
-               
+
                 const recentOrders = await ordersCollection.find({
                     "sellerInfo.email": sellerEmail
                 })
@@ -2220,7 +2222,7 @@ async function run() {
                     })
                     .toArray();
 
-               
+
                 const lowStockProducts = await productsCollection.find({
                     "seller.email": sellerEmail,
                     quantity: { $lte: 5 }
@@ -2235,7 +2237,7 @@ async function run() {
                     })
                     .toArray();
 
-              
+
                 const revenueByDate = await ordersCollection.aggregate([
                     {
                         $match: {
@@ -2270,7 +2272,7 @@ async function run() {
                     { $limit: 7 }
                 ]).toArray();
 
-               
+
                 const topProducts = await ordersCollection.aggregate([
                     {
                         $match: {
@@ -2288,10 +2290,10 @@ async function run() {
                     { $limit: 5 }
                 ]).toArray();
 
-              
+
 
                 res.json({
-                   
+
                     totalProducts,
                     verifiedProducts,
                     totalOrders,
@@ -2299,11 +2301,11 @@ async function run() {
                     totalRevenue,
                     totalReviews,
 
-                  
+
                     recentOrders,
                     lowStockProducts,
 
-                    
+
                     revenueByDate: revenueByDate || [],
                     topProducts: topProducts || []
                 });
@@ -2471,9 +2473,88 @@ async function run() {
             }
         });
 
+        // ask qus user-to-seller
+        app.post("/notifications/ask-seller", async (req, res) => {
+            try {
+                const {
+                    buyerEmail,
+                    sellerEmail,
+                    productId,
+                    productName,
+                    question
+                } = req.body;
 
+                if (!buyerEmail || !sellerEmail || !productId || !question) {
+                    return res.status(400).send({ success: false, message: "Missing data" });
+                }
 
+                const notification = {
+                    userEmail: sellerEmail,          // receiver (seller)
+                    buyerEmail,                      // who asked
+                    productId,
+                    productName,
+                    title: "New Question from Buyer",
+                    message: question,
+                    type: "ask-seller",
+                    replied: false,
+                    isRead: false,
+                    createdAt: new Date().toISOString()
+                };
 
+                await notificationsCollection.insertOne(notification);
+
+                res.send({ success: true, message: "Question sent to seller" });
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ success: false, message: "Server error" });
+            }
+        });
+
+        app.post("/notifications/reply-seller", async (req, res) => {
+            try {
+                const {
+                    notificationId,
+                    buyerEmail,
+                    sellerEmail,
+                    productId,
+                    reply
+                } = req.body;
+
+                if (!notificationId || !buyerEmail || !reply) {
+                    return res.status(400).send({ success: false });
+                }
+
+                //  Send reply notification to buyer
+                const buyerNotification = {
+                    userEmail: buyerEmail,
+                    sellerEmail,
+                    productId,
+                    title: "Seller Replied to Your Question",
+                    message: reply,
+                    type: "seller-reply",
+                    isRead: false,
+                    createdAt: new Date().toISOString()
+                };
+
+                await notificationsCollection.insertOne(buyerNotification);
+
+                //  seller notification as replied
+                await notificationsCollection.updateOne(
+                    { _id: new ObjectId(notificationId) },
+                    {
+                        $set: {
+                            replied: true,
+                            repliedAt: new Date().toISOString()
+                        }
+                    }
+                );
+
+                res.send({ success: true });
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ success: false });
+            }
+        });
 
 
 
