@@ -354,11 +354,6 @@ async function run() {
 
 
 
-
-
-
-
-
         // add Category - only admin  (VT , VA)
         app.post("/categories", verifyFbToken, async (req, res) => {
             try {
@@ -395,7 +390,7 @@ async function run() {
 
 
 
-        // get category- for admin and user
+        // get category- for admin
         app.get("/categories", async (req, res) => {
             try {
                 const { page = 1, limit = 10 } = req.query;
@@ -425,6 +420,7 @@ async function run() {
             }
         });
 
+        // for user home page
         app.get("/user-categories", async (req, res) => {
             try {
                 const categories = await categoriesCollection
@@ -432,6 +428,22 @@ async function run() {
                     .limit(16)
                     .toArray();
                 res.status(200).send(categories);
+            }
+            catch (error) {
+                console.error("Failed to fetch categories:", error);
+                res.status(500).send({ message: "Failed to fetch categories" });
+            }
+
+        });
+
+        // for category badge user
+        app.get("/category-badge", async (req, res) => {
+            try {
+                const category = await categoriesCollection
+                    .find()
+
+                    .toArray();
+                res.status(200).send(category);
             }
             catch (error) {
                 console.error("Failed to fetch categories:", error);
@@ -2027,12 +2039,12 @@ async function run() {
                     return res.status(400).send({ message: "Seller email required" });
                 }
 
-               
+
                 const matchStage = {
                     "sellerInfo.email": sellerEmail,
                 };
 
-              
+
                 const orders = await ordersCollection.aggregate([
                     { $match: matchStage },
 
@@ -2069,8 +2081,8 @@ async function run() {
                         }
                     },
 
-                    { $sort: { createdAt: -1 } }, 
-                    { $limit: 5 } 
+                    { $sort: { createdAt: -1 } },
+                    { $limit: 5 }
                 ]).toArray();
 
                 res.send({
@@ -2541,6 +2553,114 @@ async function run() {
                 res.status(500).send({ success: false });
             }
         });
+
+        // search products in header
+        app.get("/api/search", async (req, res) => {
+            try {
+                const { q } = req.query;
+
+                if (!q || q.trim() === "") {
+                    return res.json([]);
+                }
+
+                const products = await productsCollection
+                    .find(
+                        {
+                            $and: [
+                                {
+                                    $or: [
+                                        { name: { $regex: q, $options: "i" } },
+                                        { category: { $regex: q, $options: "i" } }
+                                    ]
+                                },
+                                { verificationStatus: "verified" },
+                                { isAvailable: true }
+                            ]
+                        },
+                        {
+                            projection: {
+                                name: 1,
+                                category: 1,
+                                price: 1,
+                                image: 1
+                            }
+                        }
+                    )
+                    .limit(8)
+                    .toArray();
+
+                res.json(products);
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: "Search failed" });
+            }
+        });
+
+
+        //  video call access for buyers/seller
+        app.get("/get-agora-token", async (req, res) => {
+            try {
+                const { channelName, uid } = req.query;
+
+                if (!channelName || !uid) {
+                    return res.status(400).send({ message: "Channel & UID required" });
+                }
+
+                const appID = process.env.AGORA_APP_ID;
+                const appCertificate = process.env.AGORA_APP_CERTIFICATE;
+
+                const role = RtcRole.PUBLISHER;
+                const expireTime = 3600;
+                const currentTime = Math.floor(Date.now() / 1000);
+                const privilegeExpireTime = currentTime + expireTime;
+
+                const token = RtcTokenBuilder.buildTokenWithUid(
+                    appID,
+                    appCertificate,
+                    channelName,
+                    Number(uid),
+                    role,
+                    privilegeExpireTime
+                );
+
+                res.send({ token });
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: "Failed to generate token" });
+            }
+        });
+
+        app.post("/video-call/request", async (req, res) => {
+            try {
+
+                const { buyerEmail, sellerEmail, productId, channelName } = req.body;
+
+                if (!buyerEmail || !sellerEmail || !productId || !channelName) {
+
+                    return res.status(400).send({ message: "Missing data" });
+                }
+
+                const sellerNotification = {
+                    type: "video_call",
+                    userEmail: sellerEmail,
+                    buyerEmail,
+                    productId,
+                    channelName,
+                    title: "📞 Incoming Video Call",
+                    message: "The buyer has requested a live product demonstration via video call.",
+
+                    isRead: false,
+                    createdAt: new Date(),
+                };
+
+                await notificationsCollection.insertOne(sellerNotification);
+                res.send({ success: true });
+            } catch (error) {
+                console.error("🔥 Video call request error:", error);
+                res.status(500).send({ message: "Failed to create video call request" });
+            }
+        });
+        // end
 
 
 
