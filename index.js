@@ -1,7 +1,6 @@
 const { MongoClient, ServerApiVersion, ObjectId, Timestamp } = require('mongodb');
 const express = require("express");
 const cors = require("cors");
-const bcrypt = require("bcrypt");
 require("dotenv").config();
 const cookieParser = require('cookie-parser')
 // firebase token verify
@@ -9,16 +8,15 @@ const admin = require("firebase-admin");
 const serviceAccount = require("./tradbazar-firebase-adminsdk-fbsvc-5a17141fc1.json");
 // stripe
 const stripe = require('stripe')(process.env.STRIPE_SK_KEY)
+// vdo conference
+const { RtcTokenBuilder, RtcRole } = require("agora-access-token");
+// vdo conference
 
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 
-// vdo conference
-
-const { RtcTokenBuilder, RtcRole } = require("agora-access-token");
-// vdo conference
 
 // Middleware
 app.use(cors());
@@ -35,7 +33,7 @@ admin.initializeApp({
 
 
 
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
+// Create a MongoClient 
 const client = new MongoClient(process.env.MONGODB_URI, {
     serverApi: {
         version: ServerApiVersion.v1,
@@ -2694,7 +2692,7 @@ async function run() {
         // await client.db("admin").command({ ping: 1 });
         // console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
-        // Ensures that the client will close when you finish/error
+       
         // await client.close();
     }
 }
